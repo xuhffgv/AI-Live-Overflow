@@ -18,10 +18,16 @@ jobs:
         with:
           gradle-version: "8.10"
       - name: Build debug APK
-        run: gradle assembleDebug --stacktrace --warning-mode all
-      - name: Show build errors (if failed)
-        if: failure()
-        run: cat app/build/outputs/logs/*.log 2>/dev/null || echo "No log files found"
+        id: build_apk
+        continue-on-error: true
+        run: |
+          gradle assembleDebug --stacktrace --warning-mode all 2>&1 | tee /tmp/build-output.txt
+          echo "EXIT_CODE=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+      - name: Show build output
+        run: tail -200 /tmp/build-output.txt
+      - name: Fail if build failed
+        if: steps.build_apk.outputs.EXIT_CODE != '0'
+        run: exit 1
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
