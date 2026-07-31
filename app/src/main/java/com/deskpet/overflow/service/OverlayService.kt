@@ -30,8 +30,8 @@ class OverlayService : Service() {
     companion object {
         private const val CHANNEL_ID = "pet_overlay_channel"
         private const val NOTIFICATION_ID = 1001
-        private const val PET_SIZE_DP = 180
-        private const val PET_HEIGHT_DP = 240
+        private const val PET_SIZE_DP = 96
+        private const val PET_HEIGHT_DP = 96
 
         // 构建时替换
         const val SUPABASE_URL = "https://gvzhoxepylrhseuumgls.supabase.co"

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<![CDATA[<!DOCTYPE html>
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
@@ -63,80 +63,81 @@
 const SUPABASE_URL = 'https://gvzhoxepylrhseuumgls.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_shYLYrERVyrXtjiDbG62Ng_9TUH3pg8';
 
-// ===== PIXEL ENGINE — nuko 8×10 full body =====
-const PX = 1; // pixel unit size (pure 1px per pixel)
-const COLS = 8;
-const ROWS = 10;
-const VW = COLS * PX; // 128
-const VH = ROWS * PX; // 160
-
-// nuko palette: blue body + green eyes (+ pink for love)
-const C = {
-  X: null,      // transparent
-  B: '#8BB8EA', // body blue
-  E: '#4ADE80', // eye green
-  P: '#FFB3B3', // pink (love eyes)
+// ===== 48×48 PIXEL CAT — 照抄参考图结构 + 蓝身绿眼 =====
+const COLORS = {
+  body:    '#8BB8EA',
+  stripe:  '#5A8EC0',
+  belly:   '#C5E0F5',
+  eye:     '#4ADE80',
+  outline: '#333333',
+  earIn:   '#f8b8b8',
+  blush:   '#FFB3B3',
+  nose:    '#f8b8b8',
 };
 
-// base body matrix (8×10), shared across all expressions
-// 0=transparent, 1=body, 2=eye placeholder
-const bodyMap = [
-  [0,0,0,1,1,0,0,0], // 0  ears
-  [0,0,1,1,1,1,0,0], // 1  ears
-  [0,1,1,1,1,1,1,0], // 2  head top
-  [0,1,1,1,1,1,1,0], // 3  head
-  [0,1,0,0,0,0,1,0], // 4  eye row (0=eye placeholder)
-  [0,1,0,0,0,0,1,0], // 5  eye row
-  [0,0,1,1,1,1,0,0], // 6  body
-  [0,0,1,1,1,1,0,0], // 7  body
-  [0,0,1,0,0,1,0,0], // 8  feet
-  [0,0,0,1,1,0,0,0], // 9  tail
-];
-
-// color resolver — body=1→B, eye=2→E, pink=3→P
-function resolveColor(val) {
-  if (val === 0 || val === null || val === undefined) return null;
-  const map = { 1: C.B, 2: C.E, 3: C.P };
-  return map[val] || C.B;
-}
-
-// eye definitions: left eye at cols 2-3, right eye at cols 4-5, rows 4-5
-// each eye is 2×2 = [topLeft,topRight,bottomLeft,bottomRight]
-// 1=body(white), 2=black, 3=pink
+// 表情：每个眼睛2×2像素 [左上,右上,左下,右下]，用COLORS的键
 const EYE_DEFS = {
-  idle:    { L: [2,2,2,2], R: [2,2,2,2] },  // ●●  full black
-  happy:   { L: [1,2,2,1], R: [1,2,2,1] },  // ^ ^  arched
-  angry:   { L: [2,1,1,2], R: [2,1,1,2] },  // > <  angled
-  love:    { L: [3,3,3,3], R: [3,3,3,3] },  // ♡♡  pink heart
-  shy:     { L: [2,1,2,1], R: [2,1,2,1] },  // ··  half
-  sleepy:  { L: [1,1,2,2], R: [1,1,2,2] },  // ‿‿  droopy
-  surprise: { L: [1,2,2,1], R: [1,2,2,1] },  // ○○  wide ring
+  idle:    { L: ['eye','eye','eye','eye'], R: ['eye','eye','eye','eye'] },
+  happy:   { L: ['body','eye','eye','body'], R: ['eye','body','body','eye'] },
+  angry:   { L: ['eye','body','body','eye'], R: ['body','eye','eye','body'] },
+  love:    { L: ['blush','blush','blush','blush'], R: ['blush','blush','blush','blush'] },
+  shy:     { L: ['eye','body','eye','body'], R: ['body','eye','body','eye'] },
+  sleepy:  { L: ['body','body','eye','eye'], R: ['eye','eye','body','body'] },
+  surprise: { L: ['body','eye','eye','body'], R: ['body','eye','eye','body'] },
 };
+
+function ec(key) { return COLORS[key] || COLORS.body; }
 
 function buildPixelSVG(exp) {
   const ed = EYE_DEFS[exp] || EYE_DEFS.idle;
+  const c = COLORS;
+  const LE = ed.L, RE = ed.R;
 
-  let rects = '';
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      let color = null;
-      // eye regions: rows 4-5, left eye cols 2-3, right eye cols 4-5
-      if ((r === 4 || r === 5) && (c === 2 || c === 3)) {
-        const idx = (r - 4) * 2 + (c - 2);
-        color = resolveColor(ed.L[idx]);
-      } else if ((r === 4 || r === 5) && (c === 4 || c === 5)) {
-        const idx = (r - 4) * 2 + (c - 4);
-        color = resolveColor(ed.R[idx]);
-      } else {
-        const v = bodyMap[r] ? bodyMap[r][c] : 0;
-        color = resolveColor(v);
-      }
-      if (color) {
-        rects += `<rect x="${c * PX}" y="${r * PX}" width="${PX}" height="${PX}" fill="${color}" shape-rendering="crispEdges"/>`;
-      }
-    }
-  }
-  return `<svg viewBox="0 0 ${VW} ${VH}" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`;
+  return `<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+<rect x="14" y="11" width="4" height="1" fill="${c.outline}"/>
+<rect x="13" y="12" width="1" height="4" fill="${c.outline}"/>
+<rect x="18" y="12" width="1" height="3" fill="${c.outline}"/>
+<rect x="30" y="11" width="4" height="1" fill="${c.outline}"/>
+<rect x="34" y="12" width="1" height="4" fill="${c.outline}"/>
+<rect x="29" y="12" width="1" height="3" fill="${c.outline}"/>
+<rect x="14" y="12" width="4" height="3" fill="${c.body}"/>
+<rect x="15" y="13" width="2" height="2" fill="${c.earIn}"/>
+<rect x="30" y="12" width="4" height="3" fill="${c.body}"/>
+<rect x="31" y="13" width="2" height="2" fill="${c.earIn}"/>
+<rect x="18" y="15" width="12" height="1" fill="${c.outline}"/>
+<rect x="12" y="16" width="1" height="11" fill="${c.outline}"/>
+<rect x="35" y="16" width="1" height="11" fill="${c.outline}"/>
+<rect x="13" y="27" width="22" height="1" fill="${c.outline}"/>
+<rect x="14" y="28" width="1" height="9" fill="${c.outline}"/>
+<rect x="33" y="28" width="1" height="9" fill="${c.outline}"/>
+<rect x="15" y="37" width="18" height="1" fill="${c.outline}"/>
+<rect x="35" y="30" width="4" height="1" fill="${c.outline}"/>
+<rect x="39" y="31" width="1" height="5" fill="${c.outline}"/>
+<rect x="34" y="36" width="5" height="1" fill="${c.outline}"/>
+<rect x="13" y="16" width="22" height="11" fill="${c.body}"/>
+<rect x="15" y="28" width="18" height="9" fill="${c.body}"/>
+<rect x="35" y="31" width="4" height="5" fill="${c.body}"/>
+<rect x="21" y="16" width="6" height="1" fill="${c.stripe}"/>
+<rect x="23" y="17" width="2" height="2" fill="${c.stripe}"/>
+<rect x="13" y="21" width="3" height="1" fill="${c.stripe}"/>
+<rect x="32" y="21" width="3" height="1" fill="${c.stripe}"/>
+<rect x="36" y="31" width="1" height="5" fill="${c.stripe}"/>
+<rect x="38" y="31" width="1" height="5" fill="${c.stripe}"/>
+<rect x="19" y="22" width="1" height="1" fill="${ec(LE[0])}"/>
+<rect x="20" y="22" width="1" height="1" fill="${ec(LE[1])}"/>
+<rect x="19" y="23" width="1" height="1" fill="${ec(LE[2])}"/>
+<rect x="20" y="23" width="1" height="1" fill="${ec(LE[3])}"/>
+<rect x="27" y="22" width="1" height="1" fill="${ec(RE[0])}"/>
+<rect x="28" y="22" width="1" height="1" fill="${ec(RE[1])}"/>
+<rect x="27" y="23" width="1" height="1" fill="${ec(RE[2])}"/>
+<rect x="28" y="23" width="1" height="1" fill="${ec(RE[3])}"/>
+<rect x="24" y="25" width="1" height="1" fill="${c.nose}"/>
+<rect x="17" y="24" width="2" height="2" fill="${c.blush}"/>
+<rect x="29" y="24" width="2" height="2" fill="${c.blush}"/>
+<rect x="20" y="28" width="8" height="9" fill="${c.belly}"/>
+<rect x="21" y="35" width="1" height="2" fill="${c.outline}"/>
+<rect x="26" y="35" width="1" height="2" fill="${c.outline}"/>
+</svg>`;
 }
 
 // ===== GLOBAL ENGINE =====
@@ -318,4 +319,4 @@ setInterval(pollPetState, 30000);
 setTimeout(() => say('嗯？', 'shy', 2000), 1500);
 </script>
 </body>
-</html>
+</html>]]>
