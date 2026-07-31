@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Pet</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: transparent;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #pet {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  svg { width: 100%; height: 100%; }
+
+  /* 气泡 */
+  #bubble {
+    position: absolute;
+    top: -48px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255,255,255,0.92);
+    color: #333;
+    font-size: 13px;
+    padding: 6px 12px;
+    border-radius: 14px;
+    white-space: nowrap;
+    max-width: 160px;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s;
+    font-family: sans-serif;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  }
+  #bubble.show { opacity: 1; }
+  #bubble.angry { background: #ff5252; color: #fff; }
+  #bubble.shy { background: #e0e0e0; color: #666; }
+  #bubble.love { background: #ff80ab; color: #fff; }
+
+  /* heat overlay */
+  #heat {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: radial-gradient(ellipse at center, rgba(255,0,0,0.25) 0%, transparent 70%);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.8s;
+  }
+</style>
+</head>
+<body>
+<div id="heat"></div>
+<div id="bubble"></div>
+<div id="pet"></div>
+
+<script>
+// ===== SUPABASE CONFIG =====
+// 构建时替换为实际值
+const SUPABASE_URL = 'https://gvzhoxepylrhseuumgls.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_shYLYrERVyrXtjiDbG62Ng_9TUH3pg8';
+
+// ===== GLOBAL ENGINE =====
+window.petEngine = {
+  mood: 'idle',
+  heat: 0,
+  lastGestureTime: Date.now(),
+  gestureCount: 0,
+
+  // ------ 触摸回调（Android调用） ------
+  onTap() {
+    this.gestureCount++;
+    this.lastGestureTime = Date.now();
+    this.heat = Math.min(100, this.heat + 5);
+    this.logGesture('tap');
+    showRandomReaction('tap');
+  },
+
+  onDoubleTap() {
+    this.gestureCount += 2;
+    this.lastGestureTime = Date.now();
+    this.heat = Math.min(100, this.heat + 12);
+    this.logGesture('double_tap');
+    showReaction('love');
+    say('呀！别戳了', 'love');
+  },
+
+  onLongPress() {
+    this.gestureCount += 3;
+    this.lastGestureTime = Date.now();
+    this.heat = Math.min(100, this.heat + 20);
+    this.logGesture('long_press');
+    showReaction('angry');
+    say('……干嘛', 'shy');
+  },
+
+  // ------ AI推送接收 ------
+  onAICommand(cmd) {
+    if (!cmd) return;
+    switch (cmd.message_type) {
+      case 'bubble':
+        say(cmd.content, cmd.style || 'normal', (cmd.duration_seconds || 5) * 1000);
+        break;
+      case 'expression':
+        showReaction(cmd.content);
+        break;
+      case 'action':
+        playAnimation(cmd.content);
+        break;
+      case 'notification':
+        say(cmd.content, 'angry', 8000);
+        break;
+    }
+  },
+
+  // ------ 手势上报 ------
+  logGesture(type) {
+    if (!SUPABASE_URL || SUPABASE_URL.indexOf('%%') === 0) return;
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', SUPABASE_URL + '/rest/v1/gesture_log', true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.setRequestHeader('apikey', SUPABASE_KEY);
+    xhr.setRequestHeader('Authorization', 'Bearer ' + SUPABASE_KEY);
+    xhr.setRequestHeader('Prefer', 'return=minimal');
+    xhr.send(JSON.stringify({ gesture_type: type }));
+  }
+};
+
+// ===== SVG 动画帧 =====
+const expressions = {
+  idle: { eyes: '●  ●', blush: false, mouth: '⌣' },
+  happy: { eyes: '◕  ◕', blush: true, mouth: 'ω' },
+  angry: { eyes: '✕  ✕', blush: false, mouth: 'へ' },
+  love: { eyes: '♡  ♡', blush: true, mouth: '◡' },
+  shy: { eyes: '◔  ◔', blush: true, mouth: '~' },
+  sleepy: { eyes: '￣  ￣', blush: false, mouth: '－' },
+  surprise: { eyes: '◉  ◉', blush: false, mouth: '○' }
+};
+
+let currentExp = 'idle';
+let animFrame = 0;
+let animTimer = null;
+
+function renderPet(exp) {
+  currentExp = exp || currentExp;
+  const e = expressions[currentExp] || expressions.idle;
+  const blush = e.blush ? '<ellipse cx="38" cy="58" rx="10" ry="6" fill="#ffb3b3" opacity="0.6"/>' +
+                         '<ellipse cx="82" cy="58" rx="10" ry="6" fill="#ffb3b3" opacity="0.6"/>' : '';
+
+  const svg = `<svg viewBox="0 0 120 160" xmlns="http://www.w3.org/2000/svg">
+    <!-- body -->
+    <ellipse cx="60" cy="90" rx="42" ry="48" fill="#f5f0e8" stroke="#d4c5b2" stroke-width="2"/>
+    <!-- ears -->
+    <polygon points="26,48 18,16 42,40" fill="#f5f0e8" stroke="#d4c5b2" stroke-width="2"/>
+    <polygon points="94,48 102,16 78,40" fill="#f5f0e8" stroke="#d4c5b2" stroke-width="2"/>
+    <!-- inner ear -->
+    <polygon points="28,44 24,24 38,40" fill="#ffccbc"/>
+    <polygon points="92,44 96,24 82,40" fill="#ffccbc"/>
+    <!-- eyes -->
+    <text x="42" y="72" text-anchor="middle" font-size="16" fill="#333" font-family="sans-serif">${e.eyes.split('  ')[0]}</text>
+    <text x="78" y="72" text-anchor="middle" font-size="16" fill="#333" font-family="sans-serif">${e.eyes.split('  ')[1]}</text>
+    ${blush}
+    <!-- mouth -->
+    <text x="60" y="92" text-anchor="middle" font-size="14" fill="#555" font-family="sans-serif">${e.mouth}</text>
+    <!-- paws -->
+    <ellipse cx="30" cy="118" rx="14" ry="10" fill="#f5f0e8" stroke="#d4c5b2" stroke-width="1.5"/>
+    <ellipse cx="90" cy="118" rx="14" ry="10" fill="#f5f0e8" stroke="#d4c5b2" stroke-width="1.5"/>
+  </svg>`;
+  document.getElementById('pet').innerHTML = svg;
+}
+
+function showReaction(exp) {
+  renderPet(exp);
+  clearTimeout(animTimer);
+  animTimer = setTimeout(() => renderPet('idle'), 2500);
+}
+
+function showRandomReaction(gesture) {
+  const pool = gesture === 'tap' ? ['happy', 'surprise'] : ['angry', 'shy'];
+  const r = pool[Math.floor(Math.random() * pool.length)];
+  showReaction(r);
+}
+
+function playAnimation(name) {
+  switch (name) {
+    case 'bounce':
+      document.getElementById('pet').style.transform = 'translateY(-10px)';
+      setTimeout(() => document.getElementById('pet').style.transform = '', 200);
+      break;
+    case 'shake':
+      document.getElementById('pet').style.transform = 'rotate(-5deg)';
+      setTimeout(() => document.getElementById('pet').style.transform = 'rotate(5deg)', 100);
+      setTimeout(() => document.getElementById('pet').style.transform = '', 200);
+      break;
+    case 'nod':
+      document.getElementById('pet').style.transform = 'translateY(3px)';
+      setTimeout(() => document.getElementById('pet').style.transform = '', 150);
+      break;
+  }
+}
+
+// ===== 气泡 =====
+let bubbleTimer = null;
+function say(text, style, duration) {
+  const b = document.getElementById('bubble');
+  b.textContent = text;
+  b.className = style || '';
+  b.classList.add('show');
+  clearTimeout(bubbleTimer);
+  bubbleTimer = setTimeout(() => b.classList.remove('show'), duration || 4000);
+}
+
+// ===== Heat 衰减 =====
+setInterval(() => {
+  window.petEngine.heat = Math.max(0, window.petEngine.heat - 1);
+  document.getElementById('heat').style.opacity = window.petEngine.heat / 100;
+}, 30000);
+
+// ===== Supabase Realtime 轮询 =====
+function pollAICommands() {
+  if (!SUPABASE_URL || SUPABASE_URL.indexOf('%%') === 0) return;
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', SUPABASE_URL + '/rest/v1/ai_messages?delivered=eq.false&order=created_at.asc&limit=3', true);
+  xhr.setRequestHeader('apikey', SUPABASE_KEY);
+  xhr.setRequestHeader('Authorization', 'Bearer ' + SUPABASE_KEY);
+  xhr.onload = function() {
+    if (xhr.status === 200) {
+      try {
+        const msgs = JSON.parse(xhr.responseText);
+        msgs.forEach(m => {
+          window.petEngine.onAICommand(m);
+          // 标记已送达
+          const patch = new XMLHttpRequest();
+          patch.open('PATCH', SUPABASE_URL + '/rest/v1/ai_messages?id=eq.' + m.id, true);
+          patch.setRequestHeader('Content-Type', 'application/json');
+          patch.setRequestHeader('apikey', SUPABASE_KEY);
+          patch.setRequestHeader('Authorization', 'Bearer ' + SUPABASE_KEY);
+          patch.setRequestHeader('Prefer', 'return=minimal');
+          patch.send(JSON.stringify({ delivered: true }));
+        });
+      } catch(e) {}
+    }
+  };
+  xhr.send();
+}
+
+function pollPetState() {
+  if (!SUPABASE_URL || SUPABASE_URL.indexOf('%%') === 0) return;
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', SUPABASE_URL + '/rest/v1/pet_state?order=updated_at.desc&limit=5', true);
+  xhr.setRequestHeader('apikey', SUPABASE_KEY);
+  xhr.setRequestHeader('Authorization', 'Bearer ' + SUPABASE_KEY);
+  xhr.onload = function() {
+    if (xhr.status === 200) {
+      try {
+        const states = JSON.parse(xhr.responseText);
+        states.forEach(s => {
+          if (s.state_key === 'mood') showReaction(s.state_value);
+          if (s.state_key === 'speech_bubble') say(s.state_value, 'normal', 6000);
+          if (s.state_key === 'heat') {
+            window.petEngine.heat = parseInt(s.state_value) || 0;
+            document.getElementById('heat').style.opacity = window.petEngine.heat / 100;
+          }
+        });
+      } catch(e) {}
+    }
+  };
+  xhr.send();
+}
+
+// ===== 初始化 =====
+renderPet('idle');
+setInterval(pollAICommands, 5000);
+setInterval(pollPetState, 30000);
+
+// 初始问候
+setTimeout(() => say('嗯？', 'shy', 2000), 1500);
+</script>
+</body>
+</html>

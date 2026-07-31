@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:gravity="center_horizontal"
+    android:background="#faf8f5">
+
+    <TextView
+        android:id="@+id/status_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="16sp"
+        android:textColor="#333"
+        android:gravity="center"
+        android:layout_marginBottom="32dp"
+        android:lineSpacingExtra="4dp" />
+
+    <Button
+        android:id="@+id/btn_start"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="启动桌宠"
+        android:textColor="#fff"
+        android:backgroundTint="#e8a87c"
+        android:layout_marginBottom="12dp" />
+
+    <Button
+        android:id="@+id/btn_overlay_perm"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="悬浮窗权限"
+        android:textColor="#555"
+        android:backgroundTint="#e0e0e0"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btn_usage_perm"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="使用情况访问权限"
+        android:textColor="#555"
+        android:backgroundTint="#e0e0e0" />
+
+</LinearLayout>
