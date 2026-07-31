@@ -2,10 +2,13 @@ package com.deskpet.overflow.service
 
 import android.app.*
 import android.app.usage.UsageStatsManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.FileObserver
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -27,6 +30,16 @@ class OverlayService : Service() {
     private var lastPackageName = ""
     private val lastGestureTimes = mutableListOf<Long>()
 
+    // 充电感知
+    private var powerReceiver: BroadcastReceiver? = null
+    // 截图检测
+    private var screenshotObserver: android.os.FileObserver? = null
+    // 喝水提醒
+    private var drinkWaterHandler: Handler? = null
+    private var drinkRemindCount = 0
+    // 通知碎碎念
+    private var notificationUpdateHandler: Handler? = null
+
     companion object {
         private const val CHANNEL_ID = "pet_overlay_channel"
         private const val NOTIFICATION_ID = 1001
@@ -36,7 +49,27 @@ class OverlayService : Service() {
         // 构建时替换
         const val SUPABASE_URL = "https://gvzhoxepylrhseuumgls.supabase.co"
         const val SUPABASE_KEY = "sb_publishable_shYLYrERVyrXtjiDbG62Ng_9TUH3pg8"
+
+        // App反应映射表
+        val APP_REACTIONS: Map<String, AppReaction> = mapOf(
+            "com.taobao.taobao" to AppReaction("买啥呢？让我看看！", "jealous", "金链子呢？戴上！"),
+            "com.tmall.wireless" to AppReaction("又在逛天猫…", "jealous", "买买买！"),
+            "com.ss.android.ugc.aweme" to AppReaction("又刷抖音！", "angry", "别看啦看我！"),
+            "com.chaoxing.mobile" to AppReaction("学习呢…我不吵你", "shy", "加油哦"),
+            "com.tencent.mm" to AppReaction("跟谁聊天呢…", "whisper", "哼"),
+            "com.tencent.mobileqq" to AppReaction("QQ？还在用QQ？", "surprise", ""),
+        )
+
+        // 通知碎碎念 — 按时段
+        val NOTIFICATION_TEXTS = mapOf(
+            "night" to listOf("Zzz…", "呼噜……", "zzzZZZ", "夜深了喵"),
+            "morning" to listOf("早安喵～", "新的一天！", "起床啦懒虫", "今天天气不错"),
+            "afternoon" to listOf("好困…", "你在干嘛呢", "喵～", "想出去玩"),
+            "evening" to listOf("该吃饭了", "晚上好呀", "今天辛苦了", "抱抱"),
+        )
     }
+
+    data class AppReaction(val bubble: String, val style: String, val extraBubble: String)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -46,6 +79,10 @@ class OverlayService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification("……"))
         setupOverlay()
         startAppDetection()
+        registerPowerReceiver()
+        startScreenshotObserver()
+        startDrinkWaterReminder()
+        startNotificationUpdater()
     }
 
     private fun setupOverlay() {
@@ -224,8 +261,117 @@ class OverlayService : Service() {
                     ).toString()
                 } catch (_: Exception) { foreground.packageName }
                 postAppUsage(foreground.packageName, appName)
+
+                // App反应映射
+                val reaction = APP_REACTIONS[foreground.packageName]
+                if (reaction != null) {
+                    overlayView?.evaluateJavascript(
+                        "window.petEngine && (function(){ showReaction('${reaction.style}'); say('${reaction.bubble}','${reaction.style}',4000); })()",
+                        null
+                    )
+                }
             }
         } catch (_: Exception) {}
+    }
+
+    // ===== 充电感知 =====
+    private fun registerPowerReceiver() {
+        powerReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_POWER_CONNECTED -> {
+                        overlayView?.evaluateJavascript(
+                            "window.petEngine && (function(){ showReaction('surprise'); say('嗯？来电了？','normal',3000); })()",
+                            null
+                        )
+                    }
+                    Intent.ACTION_POWER_DISCONNECTED -> {
+                        overlayView?.evaluateJavascript(
+                            "window.petEngine && (function(){ showReaction('angry'); say('啊！断电了！','angry',3000); })()",
+                            null
+                        )
+                    }
+                    Intent.ACTION_BATTERY_LOW -> {
+                        overlayView?.evaluateJavascript(
+                            "window.petEngine && (function(){ showReaction('sleepy'); say('没电了喵……','shy',4000); })()",
+                            null
+                        )
+                    }
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_POWER_CONNECTED)
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
+            addAction(Intent.ACTION_BATTERY_LOW)
+        }
+        registerReceiver(powerReceiver, filter)
+    }
+
+    // ===== 截图检测 =====
+    private fun startScreenshotObserver() {
+        try {
+            val path = android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_PICTURES
+            ).absolutePath + "/Screenshots"
+            screenshotObserver = object : android.os.FileObserver(path, android.os.FileObserver.CREATE) {
+                override fun onEvent(event: Int, file: String?) {
+                    if (event == android.os.FileObserver.CREATE && file != null) {
+                        mainHandler.post {
+                            overlayView?.evaluateJavascript(
+                                "window.petEngine && (function(){ showReaction('shy'); say('嗯？被偷拍了？','shy',3500); })()",
+                                null
+                            )
+                        }
+                    }
+                }
+            }
+            screenshotObserver?.startWatching()
+        } catch (_: Exception) {}
+    }
+
+    // ===== 喝水提醒 =====
+    private fun startDrinkWaterReminder() {
+        drinkWaterHandler = Handler(Looper.getMainLooper())
+        val runnable = object : Runnable {
+            override fun run() {
+                drinkRemindCount++
+                val msg = when {
+                    drinkRemindCount <= 1 -> "喝水！"
+                    drinkRemindCount <= 2 -> "喝水啊！渴死了！"
+                    drinkRemindCount <= 4 -> "给老子喝水！！！"
+                    else -> "你他妈喝水啊！！嗓子不干吗！！"
+                }
+                overlayView?.evaluateJavascript(
+                    "window.petEngine && (function(){ showReaction('angry'); say('$msg','shout',5000); })()",
+                    null
+                )
+                drinkWaterHandler?.postDelayed(this, 2 * 60 * 60 * 1000L)
+            }
+        }
+        drinkWaterHandler?.postDelayed(runnable, 2 * 60 * 60 * 1000L)
+    }
+
+    // ===== 通知碎碎念 =====
+    private fun startNotificationUpdater() {
+        notificationUpdateHandler = Handler(Looper.getMainLooper())
+        val runnable = object : Runnable {
+            override fun run() {
+                val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                val slot = when (h) {
+                    in 0..5 -> "night"
+                    in 6..11 -> "morning"
+                    in 12..17 -> "afternoon"
+                    else -> "evening"
+                }
+                val texts = NOTIFICATION_TEXTS[slot] ?: NOTIFICATION_TEXTS["afternoon"]!!
+                val text = texts.random()
+                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                nm.notify(NOTIFICATION_ID, buildNotification(text))
+                notificationUpdateHandler?.postDelayed(this, 60 * 60 * 1000L)
+            }
+        }
+        notificationUpdateHandler?.postDelayed(runnable, 60 * 60 * 1000L)
     }
 
     // ===== 通知 =====
@@ -259,6 +405,10 @@ class OverlayService : Service() {
     }
 
     override fun onDestroy() {
+        powerReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
+        screenshotObserver?.stopWatching()
+        drinkWaterHandler?.removeCallbacksAndMessages(null)
+        notificationUpdateHandler?.removeCallbacksAndMessages(null)
         overlayView?.let {
             windowManager?.removeView(it)
             it.destroy()
