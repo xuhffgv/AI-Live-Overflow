@@ -43,6 +43,9 @@
   #bubble.angry { background: #ff5252; color: #fff; }
   #bubble.shy { background: #e0e0e0; color: #666; }
   #bubble.love { background: #ff80ab; color: #fff; }
+  #bubble.jealous { background: #4CAF50; color: #fff; }
+  #bubble.whisper { background: #9E9E9E; color: #fff; }
+  #bubble.shout { background: #FF5252; color: #fff; }
 
   #heat {
     position: fixed; top: 0; left: 0;
@@ -148,11 +151,25 @@ window.petEngine = {
   gestureCount: 0,
 
   onTap() {
+    const now = Date.now();
+    if (now - this.lastGestureTime > 2000) this.gestureCount = 0;
     this.gestureCount++;
-    this.lastGestureTime = Date.now();
+    this.lastGestureTime = now;
     this.heat = Math.min(100, this.heat + 5);
     this.logGesture('tap');
-    showRandomReaction('tap');
+    if (this.gestureCount >= 8) {
+      showReaction('angry');
+      say(['啊啊啊！！','炸了炸了！','你手不累吗！','呜呜呜别戳了'][Math.floor(Math.random()*4)], 'shout', 2500);
+      playAnimation('shake');
+    } else if (this.gestureCount >= 5) {
+      showReaction('angry');
+      say(['你够了！','还戳！','烦死了！','喵——！！'][Math.floor(Math.random()*4)], 'angry', 2000);
+    } else if (this.gestureCount >= 3) {
+      showReaction('surprise');
+      say(['戳戳戳！','诶诶诶！','干嘛啦！','好痒！'][Math.floor(Math.random()*4)], 'love', 1800);
+    } else {
+      showRandomReaction('tap');
+    }
   },
 
   onDoubleTap() {
@@ -257,6 +274,83 @@ function say(text, style, duration) {
   bubbleTimer = setTimeout(() => b.classList.remove('show'), duration || 4000);
 }
 
+// ===== 自言自语词池 =====
+const IDLE_POOLS = {
+  daily: ['今天天气不错喵', '嗯……好无聊', '铲屎的在干嘛呢', '好想晒太阳', '肚子有点饿了', '今天会是好日子吗', '喵生值得', '发会儿呆'],
+  clingy: ['怎么不理我', '想被摸摸头', '看我一眼嘛', '好想你呀', '蹭蹭', '呜……寂寞', '过来陪我玩'],
+  chaos: ['芜湖——', '冲冲冲！', '旋转跳跃！', '我是全世界最厉害的猫！', '嘿嘿嘿嘿', '追自己尾巴！', '喵哈哈哈'],
+  night: ['好安静啊', '该睡觉了喵', '星星真好看', '深夜了还不睡吗', '咕噜咕噜……ZZzzz', '晚安……呼', '唔…做梦吃小鱼干']
+};
+
+function getIdlePool() {
+  const h = new Date().getHours();
+  if (h >= 22 || h < 6) return IDLE_POOLS.night;
+  const r = Math.random();
+  if (r < 0.2) return IDLE_POOLS.chaos;
+  if (r < 0.55) return IDLE_POOLS.clingy;
+  return IDLE_POOLS.daily;
+}
+
+let idleChatterTimer = null;
+let lastIdleChatterTs = Date.now();
+
+function idleChatter() {
+  const now = Date.now();
+  if (now - window.petEngine.lastGestureTime < 8000) return;
+  const bubble = document.getElementById('bubble');
+  if (bubble.classList.contains('show')) return;
+  const pool = getIdlePool();
+  const msg = pool[Math.floor(Math.random() * pool.length)];
+  const styles = ['normal', 'shy', 'whisper'];
+  const style = styles[Math.floor(Math.random() * styles.length)];
+  say(msg, style, 3500);
+  lastIdleChatterTs = now;
+  scheduleIdleChatter();
+}
+
+function scheduleIdleChatter() {
+  clearTimeout(idleChatterTimer);
+  const delay = 40000 + Math.random() * 100000;
+  idleChatterTimer = setTimeout(idleChatter, delay);
+}
+
+// ===== 孤独递进 =====
+let lastInteractionTs = Date.now();
+const LONELY_STAGES = [
+  { after: 300000,  exp: 'shy',    msgs: ['嗯？好像没人……', '偷偷看一眼', '……', '（偷瞄）'], style: 'shy' },
+  { after: 600000,  exp: 'surprise', msgs: ['嗯？有人吗？', '喂——！', '理我一下嘛', '我在这儿呢'], style: 'whisper' },
+  { after: 1200000, exp: 'angry',  msgs: ['搬东西……呼', '好无聊好无聊', '把这儿弄乱！', '哼！我生气了！'], style: 'jealous' },
+  { after: 1800000, exp: 'sleepy', msgs: ['Zzz...', '呼噜……', '睡着了……', 'zzZZZ……呼'], style: 'shy' }
+];
+let currentLonelyStage = -1;
+let lonelyTimer = null;
+
+function checkLoneliness() {
+  const elapsed = Date.now() - lastInteractionTs;
+  let stage = -1;
+  for (let i = LONELY_STAGES.length - 1; i >= 0; i--) {
+    if (elapsed >= LONELY_STAGES[i].after) { stage = i; break; }
+  }
+  if (stage !== currentLonelyStage) {
+    currentLonelyStage = stage;
+    if (stage >= 0) {
+      const s = LONELY_STAGES[stage];
+      showReaction(s.exp);
+      const msg = s.msgs[Math.floor(Math.random() * s.msgs.length)];
+      say(msg, s.style, 4000);
+    }
+  }
+  lonelyTimer = setTimeout(checkLoneliness, 15000);
+}
+
+// 所有手势触发时重置孤独计时
+const _origOnTap = window.petEngine.onTap.bind(window.petEngine);
+const _origOnDoubleTap = window.petEngine.onDoubleTap.bind(window.petEngine);
+const _origOnLongPress = window.petEngine.onLongPress.bind(window.petEngine);
+window.petEngine.onTap = function() { lastInteractionTs = Date.now(); currentLonelyStage = -1; return _origOnTap(); };
+window.petEngine.onDoubleTap = function() { lastInteractionTs = Date.now(); currentLonelyStage = -1; return _origOnDoubleTap(); };
+window.petEngine.onLongPress = function() { lastInteractionTs = Date.now(); currentLonelyStage = -1; return _origOnLongPress(); };
+
 // ===== Heat 衰减 =====
 setInterval(() => {
   window.petEngine.heat = Math.max(0, window.petEngine.heat - 1);
@@ -316,6 +410,8 @@ function pollPetState() {
 renderPet('idle');
 setInterval(pollAICommands, 5000);
 setInterval(pollPetState, 30000);
+scheduleIdleChatter();
+checkLoneliness();
 setTimeout(() => say('嗯？', 'shy', 2000), 1500);
 </script>
 </body>
