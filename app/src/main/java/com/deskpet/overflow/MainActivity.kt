@@ -1,5 +1,7 @@
 package com.deskpet.overflow
 
+import android.app.usage.UsageStatsManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -28,6 +30,7 @@ class MainActivity : AppCompatActivity() {
         } else true
 
         // 检查使用情况访问权限
+        val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val hasUsage = try {
             val start = System.currentTimeMillis() - 60000
             val stats = usageStatsManager.queryUsageStats(
