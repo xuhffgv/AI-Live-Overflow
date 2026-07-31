@@ -18,38 +18,36 @@
     width: 100%; height: 100%;
     display: flex; align-items: center; justify-content: center;
   }
-  svg { width: 100%; height: 100%; }
+  svg { width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; }
 
-  /* 气泡 */
   #bubble {
     position: absolute;
-    top: -48px; left: 50%;
+    top: -36px; left: 50%;
     transform: translateX(-50%);
     background: rgba(255,255,255,0.92);
     color: #333;
-    font-size: 13px;
-    padding: 6px 12px;
-    border-radius: 14px;
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 10px;
     white-space: nowrap;
-    max-width: 160px;
+    max-width: 140px;
     text-overflow: ellipsis;
     overflow: hidden;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.25s;
+    transition: opacity 0.2s;
     font-family: sans-serif;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
   }
   #bubble.show { opacity: 1; }
   #bubble.angry { background: #ff5252; color: #fff; }
   #bubble.shy { background: #e0e0e0; color: #666; }
   #bubble.love { background: #ff80ab; color: #fff; }
 
-  /* heat overlay */
   #heat {
     position: fixed; top: 0; left: 0;
     width: 100%; height: 100%;
-    background: radial-gradient(ellipse at center, rgba(255,0,0,0.25) 0%, transparent 70%);
+    background: radial-gradient(ellipse at center, rgba(255,0,0,0.2) 0%, transparent 70%);
     opacity: 0; pointer-events: none;
     transition: opacity 0.8s;
   }
@@ -64,6 +62,114 @@
 // ===== SUPABASE CONFIG =====
 const SUPABASE_URL = 'https://gvzhoxepylrhseuumgls.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_shYLYrERVyrXtjiDbG62Ng_9TUH3pg8';
+
+// ===== PIXEL ENGINE =====
+const PX = 8; // pixel unit size
+const COLS = 14;
+const ROWS = 16;
+const VW = COLS * PX; // 112
+const VH = ROWS * PX; // 128
+
+// color palette
+const C = {
+  X: null,      // transparent
+  B: '#FFF8F0', // body cream
+  S: '#E8D5C0', // shadow/edge
+  E: '#3E2723', // eye dark brown
+  P: '#FFB3B3', // pink (nose/blush/inner ear)
+  W: '#FFFFFF', // white highlight
+  D: '#C9A87C', // dark outline
+  R: '#FF8A80', // red (angry)
+};
+
+// base body matrix (14x16), shared across all expressions
+// 0=transparent, 1=body, 2=shadow, 3=eye, 4=pink, 5=white, 6=dark
+const bodyMap = [
+  [0,0,0,0,0,6,6,0,6,6,0,0,0,0], // 0 ears
+  [0,0,0,0,6,4,6,0,6,4,6,0,0,0], // 1 inner ear
+  [0,0,0,6,1,1,1,6,1,1,1,6,0,0], // 2 head top
+  [0,0,6,1,1,1,1,1,1,1,1,1,6,0], // 3
+  [0,6,1,1,1,1,1,1,1,1,1,1,1,6], // 4
+  [6,1,1,1,1,1,1,1,1,1,1,1,1,1], // 5
+  [6,1,0,0,1,1,1,1,1,1,0,0,1,1], // 6 eye row (0=placeholder for eye)
+  [6,1,0,0,1,1,1,1,1,1,0,0,1,1], // 7 eye row
+  [6,1,1,1,1,1,1,1,1,1,1,1,1,1], // 8
+  [6,1,1,1,1,4,1,1,4,1,1,1,1,1], // 9 blush
+  [6,1,1,1,1,1,1,4,1,1,1,1,1,1], // 10 nose
+  [6,1,1,1,1,1,1,1,1,1,1,1,1,1], // 11 mouth area
+  [0,6,1,1,1,1,1,1,1,1,1,1,1,6], // 12 chin
+  [0,0,6,1,1,1,1,1,1,1,1,1,6,0], // 13 body
+  [0,0,0,6,1,1,1,1,1,1,1,6,0,0], // 14
+  [0,0,0,0,6,1,6,1,6,1,6,0,0,0], // 15 paws
+];
+
+// color resolver: map bodyMap values + eye/mouth overrides to hex
+function resolveColor(val, eyeL, eyeR, mouth) {
+  if (val === 0 || val === null || val === undefined) return null;
+  const map = { 1: C.B, 2: C.S, 3: C.E, 4: C.P, 5: C.W, 6: C.D };
+  return map[val] || C.B;
+}
+
+// eye definitions per expression: [leftEye2x2, rightEye2x2]
+// each eye is [topLeft,topRight,bottomLeft,bottomRight] as color keys
+const EYE_DEFS = {
+  idle:   { L: [3,5,3,5], R: [3,5,3,5] },           // ●●  round with highlight
+  happy:  { L: [1,3,3,1], R: [1,3,3,1] },           // ^ ^  arched
+  angry:  { L: [3,1,1,3], R: [3,1,1,3] },           // > <  angled
+  love:   { L: [4,4,4,3], R: [4,4,4,3] },           // ♡♡  heart-ish
+  shy:    { L: [1,3,1,3], R: [1,3,1,3] },           // ··  half-closed
+  sleepy: { L: [1,1,3,3], R: [1,1,3,3] },           // ==  flat
+  surprise:{ L: [3,3,3,3], R: [3,3,3,3] },          // ○○  wide
+};
+
+// mouth definitions per expression: 2x4 grid at cols 5-8, rows 11-12
+// represented as [row11_left,row11_midL,row11_midR,row11_right, row12_left,row12_midL,row12_midR,row12_right]
+const MOUTH_DEFS = {
+  idle:    [1,1,1,1, 1,3,3,1],        // ⌣ smile
+  happy:   [1,5,5,1, 1,3,1,1],        // ω open
+  angry:   [1,3,3,1, 1,1,1,1],        //へ flat
+  love:    [1,4,4,1, 1,4,4,1],        // ◡ kiss
+  shy:     [1,1,1,1, 1,3,1,1],        // ~ wave
+  sleepy:  [1,1,1,1, 1,1,1,1],        // - flat
+  surprise:[1,5,5,1, 1,3,3,3],        // ○ open
+};
+
+function buildPixelSVG(exp) {
+  const ed = EYE_DEFS[exp] || EYE_DEFS.idle;
+  const md = MOUTH_DEFS[exp] || MOUTH_DEFS.idle;
+
+  let rects = '';
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      let color = null;
+      // eye regions: rows 6-7, cols 2-3 (left) and cols 10-11 (right)
+      if ((r === 6 || r === 7) && (c === 2 || c === 3)) {
+        const idx = (r - 6) * 2 + (c - 2);
+        const v = ed.L[idx];
+        color = resolveColor(v);
+      } else if ((r === 6 || r === 7) && (c === 10 || c === 11)) {
+        const idx = (r - 6) * 2 + (c - 10);
+        const v = ed.R[idx];
+        color = resolveColor(v);
+      }
+      // mouth region: rows 11-12, cols 5-8
+      else if ((r === 11 || r === 12) && c >= 5 && c <= 8) {
+        const idx = (r - 11) * 4 + (c - 5);
+        const v = md[idx];
+        color = resolveColor(v);
+      }
+      // body
+      else {
+        const v = bodyMap[r] ? bodyMap[r][c] : 0;
+        color = resolveColor(v);
+      }
+      if (color) {
+        rects += `<rect x="${c * PX}" y="${r * PX}" width="${PX}" height="${PX}" fill="${color}" shape-rendering="crispEdges"/>`;
+      }
+    }
+  }
+  return `<svg viewBox="0 0 ${VW} ${VH}" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`;
+}
 
 // ===== GLOBAL ENGINE =====
 window.petEngine = {
@@ -128,47 +234,12 @@ window.petEngine = {
   }
 };
 
-// ===== SVG 动画帧 =====
-const expressions = {
-  idle: { eyes: '●  ●', blush: false, mouth: '⌣' },
-  happy: { eyes: '◕  ◕', blush: true, mouth: 'ω' },
-  angry: { eyes: '✕  ✕', blush: false, mouth: 'へ' },
-  love: { eyes: '♡  ♡', blush: true, mouth: '◡' },
-  shy: { eyes: '◔  ◔', blush: true, mouth: '~' },
-  sleepy: { eyes: '￣  ￣', blush: false, mouth: '－' },
-  surprise: { eyes: '◉  ◉', blush: false, mouth: '○' }
-};
-
 let currentExp = 'idle';
-let animFrame = 0;
 let animTimer = null;
 
 function renderPet(exp) {
   currentExp = exp || currentExp;
-  const e = expressions[currentExp] || expressions.idle;
-  const blush = e.blush ? '<ellipse cx="38" cy="58" rx="10" ry="6" fill="#ffb3b3" opacity="0.6"/>' +
-                         '<ellipse cx="82" cy="58" rx="10" ry="6" fill="#ffb3b3" opacity="0.6"/>' : '';
-
-  const svg = `<svg viewBox="0 0 120 160" xmlns="http://www.w3.org/2000/svg">
-    <!-- body -->
-    <ellipse cx="60" cy="90" rx="42" ry="48" fill="#f5f0e8" stroke="#d4c5b2" stroke-width="2"/>
-    <!-- ears -->
-    <polygon points="26,48 18,16 42,40" fill="#f5f0e8" stroke="#d4c5b2" stroke-width="2"/>
-    <polygon points="94,48 102,16 78,40" fill="#f5f0e8" stroke="#d4c5b2" stroke-width="2"/>
-    <!-- inner ear -->
-    <polygon points="28,44 24,24 38,40" fill="#ffccbc"/>
-    <polygon points="92,44 96,24 82,40" fill="#ffccbc"/>
-    <!-- eyes -->
-    <text x="42" y="72" text-anchor="middle" font-size="16" fill="#333" font-family="sans-serif">${e.eyes.split('  ')[0]}</text>
-    <text x="78" y="72" text-anchor="middle" font-size="16" fill="#333" font-family="sans-serif">${e.eyes.split('  ')[1]}</text>
-    ${blush}
-    <!-- mouth -->
-    <text x="60" y="92" text-anchor="middle" font-size="14" fill="#555" font-family="sans-serif">${e.mouth}</text>
-    <!-- paws -->
-    <ellipse cx="30" cy="118" rx="14" ry="10" fill="#f5f0e8" stroke="#d4c5b2" stroke-width="1.5"/>
-    <ellipse cx="90" cy="118" rx="14" ry="10" fill="#f5f0e8" stroke="#d4c5b2" stroke-width="1.5"/>
-  </svg>`;
-  document.getElementById('pet').innerHTML = svg;
+  document.getElementById('pet').innerHTML = buildPixelSVG(currentExp);
 }
 
 function showReaction(exp) {
@@ -184,19 +255,24 @@ function showRandomReaction(gesture) {
 }
 
 function playAnimation(name) {
+  const el = document.getElementById('pet');
   switch (name) {
     case 'bounce':
-      document.getElementById('pet').style.transform = 'translateY(-10px)';
-      setTimeout(() => document.getElementById('pet').style.transform = '', 200);
+      el.style.transition = 'transform 0.1s';
+      el.style.transform = 'translateY(-6px)';
+      setTimeout(() => { el.style.transform = 'translateY(0)'; }, 120);
+      setTimeout(() => { el.style.transition = ''; }, 250);
       break;
     case 'shake':
-      document.getElementById('pet').style.transform = 'rotate(-5deg)';
-      setTimeout(() => document.getElementById('pet').style.transform = 'rotate(5deg)', 100);
-      setTimeout(() => document.getElementById('pet').style.transform = '', 200);
+      el.style.transition = 'transform 0.08s';
+      el.style.transform = 'rotate(-4deg)';
+      setTimeout(() => { el.style.transform = 'rotate(4deg)'; }, 80);
+      setTimeout(() => { el.style.transform = 'rotate(0)'; el.style.transition = ''; }, 160);
       break;
     case 'nod':
-      document.getElementById('pet').style.transform = 'translateY(3px)';
-      setTimeout(() => document.getElementById('pet').style.transform = '', 150);
+      el.style.transition = 'transform 0.12s';
+      el.style.transform = 'translateY(3px)';
+      setTimeout(() => { el.style.transform = 'translateY(0)'; el.style.transition = ''; }, 130);
       break;
   }
 }
@@ -218,7 +294,7 @@ setInterval(() => {
   document.getElementById('heat').style.opacity = window.petEngine.heat / 100;
 }, 30000);
 
-// ===== Supabase Realtime 轮询 =====
+// ===== Supabase 轮询 =====
 function pollAICommands() {
   if (!SUPABASE_URL || SUPABASE_URL.indexOf('%%') === 0) return;
   const xhr = new XMLHttpRequest();
@@ -228,16 +304,15 @@ function pollAICommands() {
   xhr.onload = function() {
     if (xhr.status === 200) {
       try {
-        const msgs = JSON.parse(xhr.responseText);
-        msgs.forEach(m => {
+        JSON.parse(xhr.responseText).forEach(m => {
           window.petEngine.onAICommand(m);
-          const patch = new XMLHttpRequest();
-          patch.open('PATCH', SUPABASE_URL + '/rest/v1/ai_messages?id=eq.' + m.id, true);
-          patch.setRequestHeader('Content-Type', 'application/json');
-          patch.setRequestHeader('apikey', SUPABASE_KEY);
-          patch.setRequestHeader('Authorization', 'Bearer ' + SUPABASE_KEY);
-          patch.setRequestHeader('Prefer', 'return=minimal');
-          patch.send(JSON.stringify({ delivered: true }));
+          const p = new XMLHttpRequest();
+          p.open('PATCH', SUPABASE_URL + '/rest/v1/ai_messages?id=eq.' + m.id, true);
+          p.setRequestHeader('Content-Type', 'application/json');
+          p.setRequestHeader('apikey', SUPABASE_KEY);
+          p.setRequestHeader('Authorization', 'Bearer ' + SUPABASE_KEY);
+          p.setRequestHeader('Prefer', 'return=minimal');
+          p.send(JSON.stringify({ delivered: true }));
         });
       } catch(e) {}
     }
@@ -254,8 +329,7 @@ function pollPetState() {
   xhr.onload = function() {
     if (xhr.status === 200) {
       try {
-        const states = JSON.parse(xhr.responseText);
-        states.forEach(s => {
+        JSON.parse(xhr.responseText).forEach(s => {
           if (s.state_key === 'mood') showReaction(s.state_value);
           if (s.state_key === 'speech_bubble') say(s.state_value, 'normal', 6000);
           if (s.state_key === 'heat') {
@@ -273,7 +347,6 @@ function pollPetState() {
 renderPet('idle');
 setInterval(pollAICommands, 5000);
 setInterval(pollPetState, 30000);
-
 setTimeout(() => say('嗯？', 'shy', 2000), 1500);
 </script>
 </body>
