@@ -247,23 +247,28 @@ class OverlayService : Service() {
             val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
                 ?: return
             val now = System.currentTimeMillis()
-            val stats = usageStatsManager.queryUsageStats(
-                UsageStatsManager.INTERVAL_DAILY,
-                now - 10000,
-                now
-            )
-            val foreground = stats?.maxByOrNull { it.lastTimeUsed }
-            if (foreground != null && foreground.packageName != lastPackageName) {
-                lastPackageName = foreground.packageName
+            // 改用UsageEvents获取真正的前台应用——queryUsageStats是聚合数据，不准
+            val events = usageStatsManager.queryEvents(now - 5000, now)
+            var foregroundPkg = ""
+            val event = android.app.usage.UsageEvents.Event()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                if (event.eventType == android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND ||
+                    event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED) {
+                    foregroundPkg = event.packageName
+                }
+            }
+            if (foregroundPkg.isNotEmpty() && foregroundPkg != lastPackageName) {
+                lastPackageName = foregroundPkg
                 val appName = try {
                     packageManager.getApplicationLabel(
-                        packageManager.getApplicationInfo(foreground.packageName, 0)
+                        packageManager.getApplicationInfo(foregroundPkg, 0)
                     ).toString()
-                } catch (_: Exception) { foreground.packageName }
-                postAppUsage(foreground.packageName, appName)
+                } catch (_: Exception) { foregroundPkg }
+                postAppUsage(foregroundPkg, appName)
 
                 // App反应映射
-                val reaction = APP_REACTIONS[foreground.packageName]
+                val reaction = APP_REACTIONS[foregroundPkg]
                 if (reaction != null) {
                     overlayView?.evaluateJavascript(
                         "window.petEngine && (function(){ showReaction('${reaction.style}'); say('${reaction.bubble}','${reaction.style}',4000); })()",

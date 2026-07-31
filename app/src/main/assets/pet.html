@@ -233,6 +233,7 @@ function showReaction(exp) {
   clearTimeout(animTimer);
   animTimer = setTimeout(() => renderPet('idle'), 2500);
 }
+window.showReaction = showReaction;
 
 function showRandomReaction(gesture) {
   const pool = gesture === 'tap' ? ['happy', 'surprise'] : ['angry', 'shy'];
@@ -273,6 +274,7 @@ function say(text, style, duration) {
   clearTimeout(bubbleTimer);
   bubbleTimer = setTimeout(() => b.classList.remove('show'), duration || 4000);
 }
+window.say = say;
 
 // ===== 自言自语词池 =====
 const IDLE_POOLS = {
